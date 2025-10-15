@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import apiClient from "@/lib/api";
 import { Navbar } from "@/components/Navbar";
 import { ScriptDisplay } from "@/components/ScriptDisplay";
 import { SaveVagaDialog } from "@/components/SaveVagaDialog";
@@ -20,6 +21,13 @@ interface VagaRoteiros {
   comportamental: string;
   triagem: string;
 }
+
+// Maps frontend regeneration types to backend enum int values
+const regenerationTypeMap: { [key: string]: number } = {
+  technical: 2,
+  behavioral: 3,
+  screening: 4,
+};
 
 export default function Index() {
   const [user, setUser] = useState<User | null>(null);
@@ -45,7 +53,7 @@ export default function Index() {
   const { toast } = useToast();
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (!session?.user) {
         navigate("/auth");
@@ -64,16 +72,16 @@ export default function Index() {
 
   useEffect(() => {
     if (location.state?.vaga) {
-      const vaga = location.state.vaga;
+      const { vaga } = location.state;
       setVagaId(vaga.id);
       setTitulo(vaga.titulo);
-      setJobDescription(vaga.descricao_vaga_original);
-      setOriginalJobDescription(vaga.descricao_vaga_original);
+      setJobDescription(vaga.descricaoVagaOriginal);
+      setOriginalJobDescription(vaga.descricaoVagaOriginal);
       setRoteiros({
-        principal: vaga.roteiro_principal || "",
-        tecnico: vaga.roteiro_tecnico || "",
-        comportamental: vaga.roteiro_comportamental || "",
-        triagem: vaga.roteiro_triagem || ""
+        principal: vaga.roteiroPrincipal || "",
+        tecnico: vaga.roteiroTecnico || "",
+        comportamental: vaga.roteiroComportamental || "",
+        triagem: vaga.roteiroTriagem || ""
       });
       setHasGenerated(true);
       window.history.replaceState({}, document.title);
@@ -93,19 +101,16 @@ export default function Index() {
     setIsLoading(true);
     
     try {
-      const { data, error } = await supabase.functions.invoke('generate-script', {
+      const regenerationTypeValue = regenerationType ? regenerationTypeMap[regenerationType] : 1;
+
+      const data = await apiClient('/api/Scripts/generate', {
+        method: 'POST',
         body: {
           jobDescription,
-          regenerationType,
+          regenerationType: regenerationTypeValue,
           previousScript: regenerationType ? roteiros.principal : undefined
         }
       });
-
-      if (error) throw error;
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
 
       if (regenerationType === "technical") {
         setRoteiros(prev => ({ ...prev, tecnico: data.script }));
@@ -114,7 +119,7 @@ export default function Index() {
       } else if (regenerationType === "screening") {
         setRoteiros(prev => ({ ...prev, triagem: data.script }));
       } else {
-        setRoteiros(prev => ({ ...prev, principal: data.script }));
+        setRoteiros(prev => ({ ...prev, principal: data.script, tecnico: '', comportamental: '', triagem: '' }));
         setOriginalJobDescription(jobDescription);
       }
       
@@ -156,20 +161,20 @@ export default function Index() {
   const handleSaveVaga = async (novoTitulo: string) => {
     setIsSaving(true);
     try {
-      if (vagaId) {
-        const { error } = await supabase
-          .from("vagas")
-          .update({
-            titulo: novoTitulo,
-            descricao_vaga_original: jobDescription,
-            roteiro_principal: roteiros.principal,
-            roteiro_tecnico: roteiros.tecnico,
-            roteiro_comportamental: roteiros.comportamental,
-            roteiro_triagem: roteiros.triagem,
-          })
-          .eq("id", vagaId);
+      const payload = {
+        titulo: novoTitulo,
+        descricaoVagaOriginal: originalJobDescription,
+        roteiroPrincipal: roteiros.principal,
+        roteiroTecnico: roteiros.tecnico,
+        roteiroComportamental: roteiros.comportamental,
+        roteiroTriagem: roteiros.triagem,
+      };
 
-        if (error) throw error;
+      if (vagaId) {
+        await apiClient(`/api/Vagas/${vagaId}`, { 
+          method: 'PUT', 
+          body: payload 
+        });
 
         setTitulo(novoTitulo);
         setOriginalJobDescription(jobDescription);
@@ -178,21 +183,10 @@ export default function Index() {
           description: "A vaga foi atualizada com sucesso",
         });
       } else {
-        const { data, error } = await supabase
-          .from("vagas")
-          .insert({
-            user_id: user?.id,
-            titulo: novoTitulo,
-            descricao_vaga_original: jobDescription,
-            roteiro_principal: roteiros.principal,
-            roteiro_tecnico: roteiros.tecnico,
-            roteiro_comportamental: roteiros.comportamental,
-            roteiro_triagem: roteiros.triagem,
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
+        const data = await apiClient('/api/Vagas', { 
+          method: 'POST', 
+          body: payload 
+        });
 
         setVagaId(data.id);
         setTitulo(novoTitulo);
@@ -221,12 +215,7 @@ export default function Index() {
 
     setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from("vagas")
-        .delete()
-        .eq("id", vagaId);
-
-      if (error) throw error;
+      await apiClient(`/api/Vagas/${vagaId}`, { method: 'DELETE' });
 
       toast({
         title: "Vaga excluída",
@@ -260,9 +249,10 @@ export default function Index() {
     });
     setHasGenerated(false);
     setIsEditingTitulo(false);
+    navigate('/', { replace: true });
   };
 
-  const isDescriptionChanged = originalJobDescription && jobDescription !== originalJobDescription;
+  const isDescriptionChanged = hasGenerated && originalJobDescription !== jobDescription;
 
   if (!user) {
     return null;
@@ -328,10 +318,10 @@ export default function Index() {
           </div>
 
           {isDescriptionChanged && (
-            <Alert className="border-accent bg-accent/10">
+            <Alert variant="destructive" className="border-accent bg-accent/10 text-accent-foreground">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                O roteiro atual está desatualizado. Clique em "Gerar Roteiro" para atualizar.
+                A descrição da vaga foi alterada. Para garantir que o roteiro esteja atualizado, gere um novo roteiro.
               </AlertDescription>
             </Alert>
           )}
@@ -355,7 +345,7 @@ export default function Index() {
                   className="w-full bg-primary hover:bg-primary/90 glow-primary"
                 >
                   <Sparkles className="mr-2 h-4 w-4" />
-                  Gerar Roteiro de Entrevista
+                  Gerar Roteiro Principal
                 </Button>
               </div>
             </Card>
@@ -363,7 +353,7 @@ export default function Index() {
             <div className="flex flex-col gap-4">
               <ScriptDisplay 
                 roteiros={roteiros}
-                isLoading={isLoading} 
+                isLoading={isLoading && !roteiros.principal} 
               />
               
               {hasGenerated && roteiros.principal && (
@@ -375,59 +365,61 @@ export default function Index() {
                       className="border-border hover:border-primary"
                     >
                       <Copy className="mr-2 h-4 w-4" />
-                      Copiar Roteiro
+                      Copiar Roteiros
                     </Button>
                     <Button
                       onClick={() => setSaveDialogOpen(true)}
                       className="bg-primary hover:bg-primary/90 glow-primary"
+                      disabled={isSaving}
                     >
                       <Save className="mr-2 h-4 w-4" />
-                      {vagaId ? "Salvar Alterações" : "Salvar Roteiro"}
+                      {isSaving ? 'Salvando...' : (vagaId ? "Salvar Alterações" : "Salvar Vaga")}
                     </Button>
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    <Button
-                      onClick={() => generateScript("technical")}
-                      variant="outline"
-                      size="sm"
-                      className="border-border hover:border-primary"
-                      disabled={isLoading}
-                    >
-                      <Focus className="mr-2 h-4 w-4" />
-                      Aprofundar Técnica
-                    </Button>
-                    <Button
-                      onClick={() => generateScript("behavioral")}
-                      variant="outline"
-                      size="sm"
-                      className="border-border hover:border-accent"
-                      disabled={isLoading}
-                    >
-                      <Users className="mr-2 h-4 w-4" />
-                      Focar em Comportamental
-                    </Button>
-                    <Button
-                      onClick={() => generateScript("screening")}
-                      variant="outline"
-                      size="sm"
-                      className="border-border hover:border-accent"
-                      disabled={isLoading}
-                    >
-                      <Filter className="mr-2 h-4 w-4" />
-                      Versão Triagem
-                    </Button>
-                  </div>
+                  <Card className="p-4 bg-card border-border">
+                    <h3 className="text-md font-semibold mb-3 text-center">Regerar Roteiros</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                      <Button
+                        onClick={() => generateScript("technical")}
+                        variant="outline"
+                        size="sm"
+                        className="border-border hover:border-primary"
+                        disabled={isLoading}
+                      >
+                        {isLoading && roteiros.tecnico ? 'Gerando...' : <><Focus className="mr-2 h-4 w-4" /><span>Técnico</span></>}
+                      </Button>
+                      <Button
+                        onClick={() => generateScript("behavioral")}
+                        variant="outline"
+                        size="sm"
+                        className="border-border hover:border-accent"
+                        disabled={isLoading}
+                      >
+                        {isLoading && roteiros.comportamental ? 'Gerando...' : <><Users className="mr-2 h-4 w-4" /><span>Comportamental</span></>}
+                      </Button>
+                      <Button
+                        onClick={() => generateScript("screening")}
+                        variant="outline"
+                        size="sm"
+                        className="border-border hover:border-accent"
+                        disabled={isLoading}
+                      >
+                        {isLoading && roteiros.triagem ? 'Gerando...' : <><Filter className="mr-2 h-4 w-4" /><span>Triagem</span></>}
+                      </Button>
+                    </div>
+                  </Card>
 
                   {vagaId && (
                     <Button
                       onClick={() => setDeleteDialogOpen(true)}
-                      variant="outline"
+                      variant="destructive"
                       size="sm"
-                      className="w-full border-border hover:border-destructive hover:text-destructive"
+                      className="w-full"
+                      disabled={isDeleting}
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
-                      Excluir Vaga
+                      {isDeleting ? 'Excluindo...' : 'Excluir Vaga'}
                     </Button>
                   )}
                 </div>

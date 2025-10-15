@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import apiClient from "@/lib/api"; // Import the new API client
 import { Navbar } from "@/components/Navbar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,16 +10,17 @@ import { useToast } from "@/hooks/use-toast";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import type { User } from "@supabase/supabase-js";
 
+// Updated Vaga interface to match backend ViewModel
 interface Vaga {
   id: string;
   titulo: string;
-  descricao_vaga_original: string;
-  roteiro_principal: string;
-  roteiro_tecnico: string | null;
-  roteiro_comportamental: string | null;
-  roteiro_triagem: string | null;
-  created_at: string;
-  updated_at: string;
+  descricaoVagaOriginal: string;
+  roteiroPrincipal: string;
+  roteiroTecnico: string | null;
+  roteiroComportamental: string | null;
+  roteiroTriagem: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export default function MinhasVagas() {
@@ -32,7 +34,7 @@ export default function MinhasVagas() {
   const { toast } = useToast();
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (!session?.user) {
         navigate("/auth");
@@ -57,13 +59,7 @@ export default function MinhasVagas() {
 
   const loadVagas = async () => {
     try {
-      const { data, error } = await supabase
-        .from("vagas")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
+      const data = await apiClient('/api/Vagas');
       setVagas(data || []);
     } catch (error: any) {
       console.error("Error loading vagas:", error);
@@ -91,12 +87,7 @@ export default function MinhasVagas() {
 
     setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from("vagas")
-        .delete()
-        .eq("id", selectedVaga.id);
-
-      if (error) throw error;
+      await apiClient(`/api/Vagas/${selectedVaga.id}`, { method: 'DELETE' });
 
       toast({
         title: "Vaga excluída",
@@ -176,15 +167,15 @@ export default function MinhasVagas() {
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
                         <div className="flex items-center gap-1">
                           <Calendar className="h-4 w-4" />
-                          {formatDate(vaga.created_at)}
+                          {formatDate(vaga.createdAt)}
                         </div>
                         <div className="flex items-center gap-2">
                           <FileText className="h-4 w-4" />
                           {[
-                            vaga.roteiro_principal && "Principal",
-                            vaga.roteiro_tecnico && "Técnico",
-                            vaga.roteiro_comportamental && "Comportamental",
-                            vaga.roteiro_triagem && "Triagem"
+                            vaga.roteiroPrincipal && "Principal",
+                            vaga.roteiroTecnico && "Técnico",
+                            vaga.roteiroComportamental && "Comportamental",
+                            vaga.roteiroTriagem && "Triagem"
                           ].filter(Boolean).join(", ")}
                         </div>
                       </div>
