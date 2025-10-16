@@ -10,7 +10,7 @@ Profissionais de RH e gestores de contratação gastam um tempo valioso elaboran
 
 ## 3. A Solução: Entrevisto
 
-O Entrevisto simplifica drasticamente essa tarefa. O usuário simplesmente insere as informações da vaga — como cargo, responsabilidades e nível de experiência — e nossa plataforma gera automaticamente um roteiro de entrevista completo e personalizado.
+O Entrevisto simplifica drasticamente essa tarefa. O usuário simplesmente insere as informações da vaga, como cargo, responsabilidades e nível de experiência, e a plataforma gera automaticamente um roteiro de entrevista completo e personalizado.
 
 O roteiro inclui perguntas comportamentais e técnicas, alinhadas especificamente com os requisitos da vaga, garantindo um processo de seleção mais justo, estruturado e eficaz.
 
